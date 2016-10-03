@@ -1,0 +1,1 @@
+string rmc_string
