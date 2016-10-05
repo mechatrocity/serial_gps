@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-import serial
+import serial # UART communication
 import re
-
+import datetime
+from enum import Enum
 
 def dlog(strg):
 	#pass
@@ -51,6 +52,7 @@ class CommonGpsObject():
 
 
 class GgaObject(CommonGpsObject):
+	"""GGA (Global positioning system fixed data)"""
 	def __init__(self):
 		CommonGpsObject.__init__(self)
 	
@@ -64,6 +66,7 @@ class GgaObject(CommonGpsObject):
 
 
 class GllObject(CommonGpsObject):
+	"""GLL (Geographic position - latitude/longitude )"""
 	def __init__(self):
 		CommonGpsObject.__init__(self)
 	
@@ -77,6 +80,35 @@ class GllObject(CommonGpsObject):
 
 
 class GsaObject(CommonGpsObject):
+	"""GSA (GNSS DOP and active satellites)"""
+	def __init__(self):
+		CommonGpsObject.__init__(self)
+	
+	def parse(self, input_str):
+		# First ensure its a valid NMEA string
+		CommonGpsObject.parse_common(self, input_str)
+		# Populate all data from the parsed string
+		for idx,data in enumerate(re.split(',',self.payload_string)):
+			# TODO
+			pass
+
+
+class GsvObject(CommonGpsObject):
+	"""GSV (GNSS satellites in view)"""
+	def __init__(self):
+		CommonGpsObject.__init__(self)
+	
+	def parse(self, input_str):
+		# First ensure its a valid NMEA string
+		CommonGpsObject.parse_common(self, input_str)
+		# Populate all data from the parsed string
+		for idx,data in enumerate(re.split(',',self.payload_string)):
+			# TODO
+			pass
+
+
+class VtgObject(CommonGpsObject):
+	"""VTG (Course over ground and ground speed)"""
 	def __init__(self):
 		CommonGpsObject.__init__(self)
 	
@@ -90,20 +122,28 @@ class GsaObject(CommonGpsObject):
 
 
 class RmcObject(CommonGpsObject):
+	"""RMC (Recommended minimum specific GNSS data)"""
+	
+	StatusDict 		= {'A':'Data Valid', 'V':'Data Not Valid'}
+	NorthSouthDict 	= {'N':'North', 'S':'South'}
+	EastWestDict 	= {'E':'East', 'W':'West'}
+	ModeDict 		= {'A':'Autonomous', 'D':'DGPS', 'E':'DR', \
+		'N':'Data Not Valid', 'R':'Coarse Position', 'S':'Simulator'}
+	
 	def __init__(self):
 		CommonGpsObject.__init__(self)
 		self.time_str = ""
 		self.time = 0.0
 		self.valid = False # decoded valid_flag
-		self.valid_flag = 'V'
-		self.longitude = 0.0
-		self.long_dir = "N"
-		self.latitude = 0.0
-		self.lat_dir = "N"
-		self.unknown1 = 0.0
-		self.unknown2 = 0.0
-		self.date_str = 0
-		self.date = 0 # TODO: standard python date library thing
+		self.valid_flag = 'V' # StatusDict
+		self.longitude = 0.0 # dddmm.mmmm 
+		self.long_dir = "N" # NorthSouthDict
+		self.latitude = 0.0	# ddmm.mmmm
+		self.lat_dir = "E" # EastWestDict
+		self.speed = 0.0 # Speed in knots
+		self.course = 0.0 # True course
+		self.date_str = ""	# DDMMUU
+		self.date = datetime.date()
 	
 	def __repl___(self):
 		if not self.valid:
@@ -119,9 +159,48 @@ class RmcObject(CommonGpsObject):
 		CommonGpsObject.parse_common(self, input_str)
 		# Populate all data from the parsed string
 		for idx,data in enumerate(re.split(',',self.payload_string)):
-			# TODO
-			print ("{}:\t{}".format(idx,data))
-	
+			dlog("{}:\t{}".format(idx,data))
+			if 0 == idx : assert r"$GPRMC" == data
+			elif 1 == idx: # Time stamp
+				
+			elif 2 == idx: # Validity
+				try : 	StatusDict[data]
+				except: self.valid = False
+				else: 	self.valid_flag = data
+			elif 3 == idx: # Latitude
+				pass
+			elif 4 == idx: # North/South
+				try: 	NorthSouthDict[data]
+				except: pass # TODO
+				else: 	self.long_dir = data
+			elif 5 == idx: # Longitude
+				pass
+			elif 6 == idx: # East/West
+				try: 	EastWestDict[data]
+				except: pass # TODO
+				else: 	self.lat_dir = data
+			elif 7 == idx: # Speed (knots)
+				self.speed = data
+			elif 8 == idx: # Course
+				try:
+					if data > 360.0 :
+						raise 
+					elseif data < 0.0 :
+						raise
+				except: 
+					pass # TODO
+				else:
+					self.course = data
+			elif 9 == idx: # Date
+				pass		
+			elif 10 == idx:# Magnetic Variation
+				pass
+			elif 11 == idx:# East/West
+				pass
+			else:
+				pass
+			
+		
 
 class GpsParser(serial.Serial):
 	""" TODO"""
