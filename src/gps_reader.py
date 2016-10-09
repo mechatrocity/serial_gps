@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-import serial # UART communication
+import serial
 import re
+import exceptions
 import datetime
 from enum import Enum
 
@@ -36,19 +37,22 @@ class CommonGpsObject():
 		assert len(payload)==2
 		self.payload_string = payload[0].strip()
 		self.checksum_string = payload[1].rstrip()
+		self.checksum = int(self.checksum_string, base=16)
+		
 		# Validate checksum
 		dlog("Validating checksum...")
 		calc_checksum = 0x00
 		for character in self.payload_string:
-			if r'$' == character:
-				continue
-			elif r'*' == character:
-				break
+			if   r'$' == character: continue
+			elif r'*' == character: break
 			else:
 				calc_checksum ^= ord(character)
 		calc_checksum_str = str( hex(calc_checksum) ).lstrip("0x")
 		if (calc_checksum_str != self.checksum_string):
+			valid_checksum = False
 			raise BadChecksum(input_string)
+		else:
+			valid_checksum = True
 
 
 class GgaObject(CommonGpsObject):
@@ -133,19 +137,27 @@ class RmcObject(CommonGpsObject):
 	def __init__(self):
 		CommonGpsObject.__init__(self)
 		self.time_str = ""
-		self.time = 0.0
-		self.valid = False # decoded valid_flag
+		self.time = 0.0 # TODO
+		self.valid = False    # decoded valid_flag
 		self.valid_flag = 'V' # StatusDict
-		self.longitude = 0.0 # dddmm.mmmm 
-		self.long_dir = "N" # NorthSouthDict
-		self.latitude = 0.0	# ddmm.mmmm
-		self.lat_dir = "E" # EastWestDict
-		self.speed = 0.0 # Speed in knots
-		self.course = 0.0 # True course
-		self.date_str = ""	# DDMMUU
-		self.date = datetime.date()
+		self.longitude = 0.0  # dddmm.mmmm 
+		self.long_dir = "N"   # NorthSouthDict
+		self.latitude = 0.0   # ddmm.mmmm
+		self.lat_dir = "E"    # EastWestDict
+		self.speed = 0.0      # Speed in knots
+		self.course = 0.0     # True course
+		self.date_str = ""    # DDMMUU
+		self.date = datetime.date( datetime.date.today().year,  \
+								   datetime.date.today().month, \
+								   datetime.date.today().day )
 	
 	def __repl___(self):
+		if not self.valid:
+			return "Invalid GPS Packet!!!"
+		else:
+			return "Valid RMC packat at time %s" % (self.time_str)
+	
+	def __str___(self):
 		if not self.valid:
 			return "Invalid GPS Packet!!!"
 		else:
@@ -162,7 +174,7 @@ class RmcObject(CommonGpsObject):
 			dlog("{}:\t{}".format(idx,data))
 			if 0 == idx : assert r"$GPRMC" == data
 			elif 1 == idx: # Time stamp
-				
+				pass # TODO
 			elif 2 == idx: # Validity
 				try : 	StatusDict[data]
 				except: self.valid = False
@@ -183,45 +195,47 @@ class RmcObject(CommonGpsObject):
 				self.speed = data
 			elif 8 == idx: # Course
 				try:
-					if data > 360.0 :
-						raise 
-					elseif data < 0.0 :
-						raise
+					if data > 360.0 : raise 
+					elif data < 0.0 : raise
 				except: 
 					pass # TODO
 				else:
 					self.course = data
 			elif 9 == idx: # Date
-				pass		
+				pass
 			elif 10 == idx:# Magnetic Variation
 				pass
 			elif 11 == idx:# East/West
 				pass
 			else:
 				pass
-			
-		
+
 
 class GpsParser(serial.Serial):
 	""" TODO"""
+	import threading
 	def __init__(self, port, baudrate):
 		# Create objects to hold all (supported) types of NMEA message
-		self.RMC = RmcObject()
 		self.GGA = GgaObject()
 		self.GLL = GllObject()
 		self.GSA = GsaObject()
+		self.GSV = GsvObject()
+		self.VTG = VtgObject()
+		self.RMC = RmcObject()
+
 		# Blank a string to store any GPS start-up text
 		self.text = ""
 		# All other GPS metadata
-		self.rate = 0       # Hz
+		self.rate = 0       # Hz, TODO
 		self.valid = False  # Is the LATEST GPS message valid?
+		
 		# Base class initialization
 		# TODO: launch this in a separate thread that's always watching
 		#       and populating the latest data
 		try:
 			super(GpsParser,self).__init__(port=port, baudrate=baudrate)
 		except:
-			print("Didn't work.")
+			print("Could not initialize Serial object")
 	
 	def parse_manual(self):
 		linein = super(GpsParser,self).readline()
@@ -231,19 +245,24 @@ class GpsParser(serial.Serial):
 			self.text.append(linein)
 		elif re.match(r"\$GPRMC,", linein):
 			self.RMC.parse(linein)
-			dlog("Parsed: {}".format(self.RMC))
+			dlog( "Parsed: {}".format(str(self.RMC)) )
+			
 			# Extract relevant data from RMC message
 			self.valid = self.RMC.is_valid()
 			# TODO: the rest
+			
 		elif re.match(r"\$GPGGA,", linein):
-			self.GGA.parse(linein)
-			dlog("Parsed: {}".format(self.GGA))
+			#self.GGA.parse(linein)
+			#dlog("Parsed: {}".format(self.GGA))
+			pass
 		elif re.match(r"\$GPGLL,", linein):
-			self.GLL.parse(linein)
-			dlog("Parsed: {}".format(self.GLL))
+			#self.GLL.parse(linein)
+			#dlog("Parsed: {}".format(self.GLL))
+			pass
 		elif re.match(r"\$GPGSA,", linein):
-			self.GSA.parse(linein)
-			dlog("Parsed: {}".format(self.GSA))
+			#self.GSA.parse(linein)
+			#dlog("Parsed: {}".format(self.GSA))
+			pass
 	
 	### Getters ###
 	# Access GPS hardware infromation
@@ -265,7 +284,12 @@ def main():
 	
 	print ("Going to print out all RMC messages...")
 	while 1:
-		JeffGps.parse_manual()
+		try:
+			JeffGps.parse_manual()
+		except serial.serialutil.SerialException as E:
+			print ("Serial error: {}".format(E))
+			break
+
 
 if __name__ == '__main__':
     main()
